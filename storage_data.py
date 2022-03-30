@@ -96,7 +96,6 @@ class FLOSolution:
 
     def sort_chromosomes_by_score(self):
         self.chromosomes.sort(key=lambda d: self.calculate_sum_cost(d))
-        a = list(map(lambda d: self.calculate_sum_cost(d), self.chromosomes))
         self.best_score = self.calculate_sum_cost(self.chromosomes[0])
 
     def calculate_sum_cost(self, chromosome: Chromosome, overlap_penelty: int = 10000):

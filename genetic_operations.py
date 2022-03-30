@@ -40,22 +40,32 @@ def generate_random_solution(paths_flow_file_name: str, paths_cost_file_name: st
 
 old = {}
 
+
 def selection_tournament(solution: FLOSolution, sample_size: Union[int, float] = 5, number_of_results: int = 2) -> list[
     Chromosome]:
+
     if sample_size < 1.0:
         sample_size = int(len(solution.chromosomes) * sample_size)
-
+    if sample_size == 0:
+        return solution.chromosomes
     all_chromosomes = []
+
+    def inside(check):
+        for e in all_chromosomes:
+            if e == check:
+                return True
+        return False
+
     for i in range(number_of_results):
         chromo = None
-        while chromo is None or chromo in all_chromosomes:
-            selected_chromosomes = random.sample(solution.chromosomes, k=sample_size)
-            selected_chromosomes.sort(key=lambda d: solution.calculate_sum_cost(d))
-            while chromo is None or chromo in all_chromosomes:
-                chromo = selected_chromosomes.pop(0)
+        selected_chromosomes = random.sample(solution.chromosomes, k=sample_size)
+        selected_chromosomes.sort(key=lambda d: solution.calculate_sum_cost(d))
+        while chromo is None or inside(chromo):
+            chromo = selected_chromosomes.pop(0)
 
         all_chromosomes.append(chromo)
-    assert all_chromosomes[0] != all_chromosomes[1]
+
+    assert len(all_chromosomes) == number_of_results
     return all_chromosomes
 
 
@@ -76,12 +86,14 @@ def roulette(solution: FLOSolution, number_of_results: int = 2):
         """
         Scale the given value from the scale of src to the scale of 0-1.
         """
-        return (suma / val) ** 2
+        return (suma / val) ** 3
 
     weights = list(map(lambda d: scale(solution.calculate_sum_cost(d)), solution.chromosomes))
-    a = ""
-    for i in range(len(weights)):
-        a += f"{l[i]} - {weights[i]}, "
+    #  mi = min(weights)
+    #  weights = list(map(lambda d: (d), weights))
+    #   a = ""
+    #   for i in range(len(weights)):
+    #       a += f"{l[i]} - {weights[i]}, "
     # print(a)
     # print(weights)
     for i in range(number_of_results):
@@ -89,6 +101,7 @@ def roulette(solution: FLOSolution, number_of_results: int = 2):
         while chromo is None or chromo in all_chromosomes:
             return random.choices(solution.chromosomes, weights=weights, k=2)
         all_chromosomes.append(chromo)
+    assert len(all_chromosomes) == number_of_results
     return all_chromosomes
 
 
@@ -101,19 +114,21 @@ def anydup(thelist):
 
 
 # prawdopodbienstwo krzyzowania
-def cross(solution: FLOSolution, parent1: Chromosome, parent2: Chromosome,
+def cross(solution: FLOSolution, parents_sample: list[Chromosome], cross_chance: float = 0.1,
           number_of_cuts_per_chromosome: int = 1) -> FLOSolution:
     next_generation = solution.next_generation()
     next_generation.connections = solution.connections
-
+    total_rotations = 0
     # next_generation.chromosomes.append(parent1)
     # next_generation.chromosomes.append(parent2)
 
+    if random.random() > cross_chance:
+        for e in parents_sample:
+            next_generation.chromosomes.append(Chromosome(list(map(lambda d: d.copy(), e.machines))))
+        return next_generation
+
     def fix_machines(list_machines: list[FLOMachine]):
-        if random.random() > 0.5:
-            source = parent1
-        else:
-            source = parent2
+        source = random.choice(parents_sample)
         machines_id_list = list(map(lambda d: d.machineId, list_machines))
         machines_id_set = set(machines_id_list)
         machines_indexes = list(map(lambda d: machines_id_list.index(d), machines_id_set))
@@ -126,7 +141,7 @@ def cross(solution: FLOSolution, parent1: Chromosome, parent2: Chromosome,
             if machines_id_list.count(i) == 0:
                 list_mac.append(source.machines[sources_id.index(i)])
 
-        assert len(list_mac) == len(parent1.machines)
+        assert len(list_mac) == len(parents_sample[0].machines)
         assert len(list_mac) == solution.max_id() + 1
         l = list(map(lambda d: d.machineId, list_mac))
         assert len(set(l)) == len(l)
@@ -137,11 +152,17 @@ def cross(solution: FLOSolution, parent1: Chromosome, parent2: Chromosome,
     # print(list(map(lambda d: d.machineId, parent2.machines)))
 
     for _ in range(solution.number_of_chromosomes):
-        random.shuffle(parent1.machines)
-        random.shuffle(parent2.machines)
-        target_length = len(parent1.machines)
-        last_cut_pos = random.randrange(target_length)
-        list_of_machines: list = parent1.machines[0:last_cut_pos] + parent2.machines[last_cut_pos:]
+        list_of_machines = []
+        for i in range(solution.max_id() + 1):
+            list_of_machines.append(random.choice(parents_sample)[i])
+
+        # parent1 = random.choice(parents_sample)
+        # parent2 = random.choice(parents_sample)
+        # random.shuffle(parent1.machines)
+        # random.shuffle(parent2.machines)
+        target_length = len(parents_sample[0].machines)
+        # last_cut_pos = random.randrange(target_length)
+        # list_of_machines: list = parent1.machines[0:last_cut_pos] + parent2.machines[last_cut_pos:]
 
         # parent2_insert = True
         # for i in range(number_of_cuts_per_chromosome):
@@ -162,7 +183,7 @@ def cross(solution: FLOSolution, parent1: Chromosome, parent2: Chromosome,
         # # else:
         # #     list_of_machines = list_of_machines + parent1.machines[last_cut_pos: last_cut_pos + remaining_length]
 
-        assert len(list_of_machines) == target_length and len(list_of_machines) == len(parent1.machines)
+        assert len(list_of_machines) == target_length and len(list_of_machines) == len(parents_sample[0].machines)
         # assert not anydup(list(map(lambda d: d.machineId, list_of_machines)))
         # print(list(map(lambda d: d.machineId, list_of_machines)))
 
@@ -174,19 +195,36 @@ def cross(solution: FLOSolution, parent1: Chromosome, parent2: Chromosome,
 
 def mutation(solution: FLOSolution, mutation_chance: float = 0.1, number_of_mutations: int = 5):
     for e in solution.chromosomes:
+        def get_overlaping(pos_x, pos_y):
+            for i in range(len(e.machines)):
+                machine1 = e.machines[i]
+                if machine1.posX == pos_x and machine1.posY == pos_y:
+                    return machine1
+            return None
+
         if random.random() < mutation_chance:
             # print("We got mutation!")
             for i in range(number_of_mutations):
                 random_machine: FLOMachine = random.choice(e.machines)
-                random_machine.posX = random.randrange(solution.board_size_x)
-                random_machine.posY = random.randrange(solution.board_size_y)
-                movement = random.choice(e.machines)
-                movement.posX += random.randrange(3)
-                if movement.posX > solution.board_size_x:
-                    movement.posX -= solution.board_size_x
-                movement.posY += random.randrange(3)
-                if movement.posY > solution.board_size_y:
-                    movement.posY -= solution.board_size_y
+                new_pos_x = random.randrange(solution.board_size_x)
+                new_pos_y = random.randrange(solution.board_size_y)
+                overlap = get_overlaping(new_pos_x, new_pos_y)
+                if overlap is None:
+                    random_machine.posX = new_pos_x
+                    random_machine.posY = new_pos_y
+                else:  # swap
+                    overlap.posX = random_machine.posX
+                    overlap.posY = random_machine.posY
+                    random_machine.posX = new_pos_x
+                    random_machine.posY = new_pos_y
+
+                # movement = random.choice(e.machines)
+                # movement.posX += random.randrange(3)
+                # if movement.posX > solution.board_size_x:
+                #     movement.posX -= solution.board_size_x
+                # movement.posY += random.randrange(3)
+                # if movement.posY > solution.board_size_y:
+                #     movement.posY -= solution.board_size_y
 
 
 if __name__ == '__main__':
@@ -196,7 +234,7 @@ if __name__ == '__main__':
     for e in a:
         print(solution2.calculate_sum_cost(e))
 
-    b = cross(solution2, a[0], a[1])
-    print(b)
-    mutation(b)
-    print(b)
+    # b = cross(solution2, a[0], a[1])
+    # print(b)
+    # mutation(b)
+    # print(b)
